@@ -10,3 +10,5 @@ BSD 3-Clause
 
 [2025-02-13](https://bitbucket.org/connect2id/oauth-2.0-sdk-with-openid-connect-extensions/downloads/metadata-policy-test-vectors-2025-02-13.json) based on https://connect2id.com/blog/metadata-policy-test-vectors-openid-federation
 
+Put the file in the `./data/` directory (create it if required).
+
