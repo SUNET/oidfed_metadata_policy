@@ -7,7 +7,7 @@ use std::io;
 fn main() {
     let mut stdin = io::stdin();
     env_logger::init();
-    let data = std::fs::read("metadata-policy-test-vectors-2025-02-13.json").unwrap();
+    let data = std::fs::read("data/metadata-policy-test-vectors-2025-02-13.json").unwrap();
     let data_str = std::str::from_utf8(&data).unwrap();
     let input: Value = serde_json::from_str(data_str).unwrap();
 
