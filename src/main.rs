@@ -3,8 +3,8 @@ use anyhow::{Result, bail};
 use core::panic;
 use log::debug;
 use serde_json::{Map, Value, json};
-use std::io;
 use std::io::prelude::*;
+use std::io::{self, empty};
 
 use std::collections::HashSet;
 
@@ -21,7 +21,6 @@ pub fn merge_policies(
     eprintln!("From IA: {:?}\n", ia_policies);
 
     let mut merged: Map<String, Value> = Map::new();
-    // FIXME: we assume both has the same keys
     for (oid_meta_name, value) in ta_policies.into_iter() {
         //debug!("metadata name {}", oid_meta_name);
         //debug!("metadata value {:?}\n", value);
@@ -65,7 +64,6 @@ pub fn merge_policies(
         for operator_name in ta_names.intersection(&ia_names) {
             // Means both the lists has the same operator
             // We have to deal by each operator here
-            eprintln!("We have common {:?}", operator_name);
             let value_from_ta = list_of_policies.get(operator_name).unwrap();
             let value_from_ia = list_from_ia_policies.get(operator_name).unwrap();
             debug!("From ta: {:?}", value_from_ta);
@@ -264,7 +262,7 @@ pub fn merge_policies(
         }
         if let Some(add_op) = one_metadata_merged.get("add") {
             let operator_add_hash = get_hashset_from_values(add_op);
-            // Means we also have add
+            // Means we also have subset
             if let Some(subset_op) = one_metadata_merged.get("subset_of") {
                 let subset_hash = get_hashset_from_values(subset_op);
                 // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.1.1
@@ -333,6 +331,284 @@ pub fn get_hashset_from_values(values: &Value) -> HashSet<Value> {
     hash_set
 }
 
+pub fn is_subset_of(val: &Value, val2: &Value) -> bool {
+    let v1 = get_hashset_from_values(&val);
+    let v2 = get_hashset_from_values(&val2);
+    v1.is_subset(&v2)
+}
+
+pub fn is_superset_of(val: &Value, val2: &Value) -> bool {
+    let v1 = get_hashset_from_values(&val);
+    let v2 = get_hashset_from_values(&val2);
+    v2.is_subset(&v1)
+}
+
+pub fn intersection_of(val: &Value, val2: &Value) -> Option<HashSet<Value>> {
+    let mut result: HashSet<Value> = HashSet::new();
+    let v1 = get_hashset_from_values(&val);
+    let v2 = get_hashset_from_values(&val2);
+    for x in v1.intersection(&v2) {
+        result.insert(x.clone());
+    }
+    Some(result.clone())
+}
+
+pub fn get_hashset_from_only_names(values: &Value) -> HashSet<Value> {
+    let mut hash_set = HashSet::new();
+    if values.is_array() {
+        let internal = values.as_array().unwrap();
+        for v in internal.iter() {
+            hash_set.insert(v.clone());
+        }
+    } else if values.is_object() {
+        for v in values.as_object().unwrap().keys() {
+            hash_set.insert(json!(v));
+        }
+    } else {
+        hash_set.insert(values.clone());
+    }
+    hash_set
+}
+
+pub fn resolve_metadata_policy(
+    policy: &Map<String, Value>,
+    metadata: &Map<String, Value>,
+) -> Result<Value> {
+    eprintln!("--IN RESOLVE FUNCTION--\n");
+    eprintln!("\npolicy: {:?}", policy);
+    eprintln!("\nmetadata {:?}\n", metadata);
+    let mut result = Map::new();
+    for (metadata_name, metadata_value) in metadata.iter() {
+        // To check if policy has same key, if not then add it directly and move on to next
+        // metadata
+        if !policy.contains_key(metadata_name) {
+            result.insert(metadata_name.to_string(), metadata_value.clone());
+            continue;
+        }
+        // If we are here means we have a corresponding policy
+        let policy_value = policy.get(metadata_name).unwrap().as_object().unwrap();
+        eprintln!(
+            "\npolicy_value {:?} and metadata_value {:?}",
+            policy_value, metadata_value
+        );
+
+        // First check value
+        if policy_value.contains_key("value") {
+            // THis has highest priority
+            let value_data = policy_value.get("value").unwrap();
+            if !value_data.is_null() {
+                result.insert(metadata_name.to_owned(), value_data.clone());
+            }
+            continue;
+        }
+        // Now add
+        let mut internal_result = Map::new();
+        let mut local_result_flag = false;
+        if let Some(policy_value_data) = policy_value.get("add") {
+            eprintln!("\nWe have ADD in POLICY: {:?}\n", policy_value_data);
+            let mut iresult = Vec::new();
+            // we have both add and metadata value
+            let mvalue = metadata_value.as_array().unwrap();
+            for v in mvalue.iter() {
+                iresult.push(v);
+            }
+            eprintln!("Copied all metadata in iresult: {:?}\n", iresult);
+            for v in policy_value_data.as_array().unwrap().iter() {
+                // Don't add if we already added
+                if !iresult.contains(&v) {
+                    iresult.push(v);
+                }
+            }
+            eprintln!("Copied all policy in iresult: {:?}\n", iresult);
+
+            internal_result.insert("final".to_string(), json!(iresult.clone()));
+            local_result_flag = true;
+        }
+        // default
+        // This does not make any sense here as we have a value in metadata
+        if let Some(policy_value_data) = policy_value.get("default") {
+            eprintln!("\nWe have DEFAULT in POLICY: {:?}\n", policy_value_data);
+            // If already created local internal result, then we don't have to do anything
+            // else the current metadata provided value is the internal data
+            if !local_result_flag {
+                internal_result.insert("final".to_string(), metadata_value.clone());
+                local_result_flag = true;
+            }
+        }
+
+        // one_of
+        let mut one_of_flag = false;
+        if let Some(policy_value_data) = policy_value.get("one_of") {
+            eprintln!("\nWe have ONE_OF in POLICY: {:?}\n", policy_value_data);
+            let vec_policy = policy_value_data.as_array().unwrap();
+            if vec_policy.contains(&metadata_value) {
+                internal_result.insert("final".to_string(), metadata_value.clone());
+                one_of_flag = true;
+            }
+            // A single object, can not be a list
+            else {
+                // the given value is not in one_of
+                bail!("Failed to find in one_of")
+            }
+        }
+        if !one_of_flag {
+            // if not one_of then only we should check subset and superset
+            if let Some(policy_value_data) = policy_value.get("subset_of") {
+                // Now if we have final means already applied result
+                let current_value = match internal_result.contains_key("final") {
+                    true => internal_result.get("final").unwrap().clone(),
+                    false => metadata_value.clone(),
+                };
+                eprintln!("SUBSET: {:?} and {:?}", policy_value_data, current_value);
+                if is_subset_of(&current_value, policy_value_data) {
+                    internal_result.insert("final".to_string(), current_value.clone());
+                }
+                if let Some(middle_data) =
+                    intersection_of(policy_value_data, &current_value.clone())
+                {
+                    if middle_data.len() > 0 {
+                        internal_result.insert("final".to_string(), json!(middle_data));
+                    } else {
+                        let empty_vec: Vec<String> = Vec::new();
+                        // Means nothing common, it should become empty list
+                        internal_result.insert("final".to_string(), json!(empty_vec));
+                    }
+                }
+            }
+            if let Some(policy_value_data) = policy_value.get("superset_of") {
+                // let vec_policy = policy_value_data.as_array().unwrap();
+                // Now if we have final means already applied result
+                let current_value = match internal_result.contains_key("final") {
+                    true => internal_result.get("final").unwrap(),
+                    false => metadata_value,
+                };
+                eprintln!("SUPERSET: {:?} and {:?}", policy_value_data, current_value);
+                if is_subset_of(policy_value_data, &current_value) {
+                    internal_result.insert("final".to_string(), current_value.clone());
+                }
+                // A single object, can not be a list
+                else {
+                    // the given value is not in one_of
+                    bail!("superset_of failed")
+                }
+            }
+        }
+        eprintln!("internal_result {:?}\n", internal_result);
+        result.insert(
+            metadata_name.to_string(),
+            internal_result.get("final").unwrap().clone(),
+        );
+    }
+    // Now for the things in policy but not on metadata
+    //let policy_hash = get_hashset_from_values(&json!(&policy));
+    let policy_hash = json!(policy).as_object().unwrap().clone();
+    let policy_hash_names = get_hashset_from_only_names(&json!(&policy));
+    let metadata_hash = get_hashset_from_values(&json!(&metadata));
+    let metadata_hash_names = get_hashset_from_only_names(&json!(&metadata));
+    eprintln!(
+        "Before only_policy: {:?} {:?}\n",
+        policy_hash, metadata_hash
+    );
+    for x in policy_hash_names.difference(&metadata_hash_names) {
+        let mkey = x.as_str().unwrap();
+        let mvalue = policy_hash
+            .get(x.as_str().unwrap())
+            .unwrap()
+            .as_object()
+            .unwrap();
+        // This is the name of the metadata
+        // If we have a value, then that is the answer
+        if mvalue.contains_key("value") {
+            eprintln!("0metadata: FOUND VALUE IN POLICY");
+
+            let value_data = mvalue.get("value").unwrap();
+            if !value_data.is_null() {
+                result.insert(mkey.to_owned(), value_data.clone());
+            }
+            //result.insert(mkey.to_owned(), mvalue.get("value").unwrap().clone());
+            continue;
+        }
+        // to know if we already  made a new metadata value from add or default
+        let mut new_metadata_flag = false;
+        if mvalue.contains_key("add") {
+            eprintln!("0metadata: FOUND ADD IN POLICY");
+            result.insert(mkey.to_owned(), mvalue.get("add").unwrap().clone());
+            new_metadata_flag = true;
+            //continue;
+        }
+        if mvalue.contains_key("default") && new_metadata_flag == false {
+            eprintln!("0metadata: FOUND DEFAULT IN POLICY");
+            result.insert(mkey.to_owned(), mvalue.get("default").unwrap().clone());
+            new_metadata_flag = true;
+        }
+
+        let mut empty_subset_found = false;
+        if mvalue.contains_key("subset_of") {
+            eprintln!("0metadata: FOUND SUBSET_OF IN POLICY");
+            if new_metadata_flag {
+                let policy_value_data = mvalue.get("subset_of").unwrap();
+                let current_result = result.get(mkey).unwrap();
+                let local_result = intersection_of(current_result, policy_value_data).unwrap();
+                result.insert(mkey.to_owned(), json!(local_result));
+            } else {
+                empty_subset_found = true;
+                new_metadata_flag = true
+            }
+            //else {
+            //let empty_vec: Vec<String> = Vec::new();
+            //result.insert(mkey.to_owned(), json!(empty_vec));
+            //}
+        }
+
+        if mvalue.contains_key("superset_of") {
+            eprintln!("0metadata: FOUND SUPERSET_OF IN POLICY");
+            if new_metadata_flag {
+                let mut is_super = false;
+                let policy_value_data = mvalue.get("superset_of").unwrap();
+                is_super = if empty_subset_found {
+                    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6-2
+                    // If we reached here, means we had a subset_of and after applying we have an
+                    // empty list as result. Which we don't even store in the result variable.
+                    //let empty_vec: Vec<String> = Vec::new();
+                    //let current_result = json!(empty_vec);
+                    //eprintln!(
+                    //"\nTO empty calculation ===> {:?} IN {:?}",
+                    //current_result, policy_value_data
+                    //);
+                    //is_superset_of(&current_result, policy_value_data)
+                    true
+                } else {
+                    let current_result = result.get(mkey).unwrap();
+                    eprintln!(
+                        "\nTO calculation ===> {:?} IN {:?}",
+                        current_result, policy_value_data
+                    );
+                    is_superset_of(current_result, policy_value_data)
+                };
+                if !is_super {
+                    // Means we have a failure
+                    //https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6-2
+                    bail!("default/add value is not superset_of value")
+                }
+            }
+            //else {
+            //bail!("we have superset_of in policy but no default/add value");
+            //}
+        }
+
+        if mvalue.contains_key("essential") {
+            if (empty_subset_found == true) {
+                bail!("We have an essential policy but empty subset");
+            }
+            if (new_metadata_flag == false) {
+                bail!("We have an essential policy but not metadata");
+            }
+        }
+    }
+
+    Ok(json!(result))
+}
+
 fn main() {
     let mut stdin = io::stdin();
     env_logger::init();
@@ -343,6 +619,10 @@ fn main() {
     for one_test in input.as_array().unwrap().iter() {
         let input_map = one_test.as_object().unwrap();
         let n = &input_map["n"];
+        // For one test
+        //if n.as_i64().unwrap() != 1458 {
+        //continue;
+        //}
         eprintln!("Running {}", n);
         let merged = merge_policies(&input_map["TA"], &input_map["INT"], n);
         match merged {
@@ -356,6 +636,33 @@ fn main() {
                         if (*final_exp != m) {
                             eprintln!("Expected answer: {:?}\n", final_exp);
                             panic!("Failed");
+                        } else {
+                            // Merge worked, now we should apply the input to the merged answer
+                            let metadata = input_map.get("metadata").unwrap().as_object().unwrap();
+                            let result = resolve_metadata_policy(&m, metadata);
+                            if result.is_err() {
+                                let expected = input_map.get("error");
+                                match expected {
+                                    Some(exp) => {
+                                        eprintln!("Received error in policy as expected\n");
+                                        continue;
+                                    }
+                                    None => panic!("Missing error output at {}", n),
+                                }
+                                panic!("{}", result.err().unwrap());
+                            }
+                            let result = result.ok().unwrap();
+                            let resolved = input_map.get("resolved").unwrap();
+                            eprintln!(
+                                "Result: {:?}  and expected_result: {:?}\n\n",
+                                result, resolved
+                            );
+                            if !check_equal(resolved, &result) {
+                                panic!("Failed");
+                            }
+
+                            // Read a single byte and discard
+                            //let _ = stdin.read(&mut [0u8]).unwrap();
                         }
                     }
                     None => panic!("Missing merged output at {}", n),
@@ -369,7 +676,31 @@ fn main() {
                 }
             }
         }
-        // Read a single byte and discard
-        //let _ = stdin.read(&mut [0u8]).unwrap();
     }
+}
+
+pub fn check_equal(v1: &Value, v2: &Value) -> bool {
+    // Check two values are same using unordered sets
+    let v1 = v1.as_object().unwrap();
+    let v2 = v2.as_object().unwrap();
+    // First let us check if we have the same keys in both places
+    let mut k1: HashSet<&String> = HashSet::new();
+    for x in v1.keys() {
+        k1.insert(x);
+    }
+    let mut k2: HashSet<&String> = HashSet::new();
+    for x in v2.keys() {
+        k2.insert(x);
+    }
+    if k1 != k2 {
+        return false;
+    }
+    for name in v1.keys() {
+        let h1 = get_hashset_from_values(v1.get(name).unwrap());
+        let h2 = get_hashset_from_values(v2.get(name).unwrap());
+        if h1 != h2 {
+            return false;
+        }
+    }
+    true
 }
