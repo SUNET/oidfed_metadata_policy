@@ -4,7 +4,7 @@ DO NOT USE IN PRODUCTION.
 
 ## LICENSE
 
-BSD 3-Clause
+BSD-3-Clause
 
 ## Test data I am using
 
