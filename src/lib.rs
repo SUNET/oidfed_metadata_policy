@@ -188,7 +188,7 @@ pub fn merge_policies(
                 if !add_value_hash.is_subset(&operator_value_hash) {
                     // error
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate grant_types policy: Illegal value \/ add operator combination: The add must be a subset of the values of value"
+                        r"Subordinate policy merge error: the add must be a subset of the values of value"
                     );
                 }
             }
@@ -198,9 +198,7 @@ pub fn merge_policies(
                 // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.2.1
                 // Value should not be null
                 if value_op.is_null() {
-                    bail!(
-                        r"Subordinate policy merge error: Illegal subordinate logo_uri policy: Illegal value \/ default operator combination: The value must be non-null"
-                    );
+                    bail!(r"Subordinate policy merge error: the value must be non-null");
                 }
             }
 
@@ -213,7 +211,7 @@ pub fn merge_policies(
                     debug!("{:?}", operator_value_hash);
                     debug!("{:?}", one_of_value_hash);
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate logo_uri policy: Illegal value \/ one_of operator combination: The value must be among the one_of values"
+                        r"Subordinate policy merge error: The value must be among the one_of values"
                     );
                 }
             }
@@ -227,7 +225,7 @@ pub fn merge_policies(
 
                 if !superset_of_value_hash.is_subset(&operator_value_hash) {
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate grant_types policy: Illegal value \/ superset_of operator combination: The value must be a superset of the values of superset_of"
+                        r"Subordinate policy merge error: The value must be a superset of the values of superset_of"
                     );
                 }
             }
@@ -239,7 +237,7 @@ pub fn merge_policies(
 
                 if !operator_value_hash.is_subset(&subset_of_value_hash) {
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate grant_types policy: Illegal value \/ subset_of operator combination: The value must be a subset of the values of subset_of"
+                        r"Subordinate policy merge error: The value must be a subset of the values of subset_of"
                     );
                 }
             }
@@ -250,7 +248,7 @@ pub fn merge_policies(
                 let es_val = essential_op.as_bool().unwrap();
                 if es_val && value_op.is_null() {
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate logo_uri policy: Illegal value \/ essential operator combination: The value must be non-null when essential is true"
+                        r"Subordinate policy merge error: The value must be non-null when essential is true"
                     );
                 }
             }
@@ -264,7 +262,7 @@ pub fn merge_policies(
                 if !operator_add_hash.is_subset(&subset_hash) {
                     // error
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate grant_types policy: Illegal subset_of \/ add operator combination: The values of add must be a subset of the values of subset_of"
+                        r"Subordinate policy merge error: The values of add must be a subset of the values of subset_of"
                     );
                 }
             }
@@ -278,7 +276,7 @@ pub fn merge_policies(
                 if !superset_hash.is_subset(&operator_subset_hash) {
                     // error
                     bail!(
-                        r"Subordinate policy merge error: Illegal subordinate grant_types policy: Illegal subset_of \/ superset_of operator combination: The values of subset_of must be a superset of the values of superset_of"
+                        r"Subordinate policy merge error: The values of subset_of must be a superset of the values of superset_of"
                     );
                 }
             }
