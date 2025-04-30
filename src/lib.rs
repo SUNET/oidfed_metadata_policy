@@ -105,13 +105,13 @@ pub fn merge_policies(
                 "one_of" => {
                     let ta_items = get_hashset_from_values(value_from_ta);
                     let ta_orderd_items = value_from_ta.as_array().unwrap();
-                    if ta_items.len() == 0 {
+                    if ta_items.is_empty() {
                         // It can not be empty
                         bail!("Policy error: TA one_of is empty");
                     }
                     let ia_items = get_hashset_from_values(value_from_ia);
                     let ia_orderd_items = value_from_ia.as_array().unwrap();
-                    if ia_items.len() == 0 {
+                    if ia_items.is_empty() {
                         // It can not be empty
                         bail!("Policy error: IA one_of is empty");
                     }
@@ -223,7 +223,7 @@ pub fn merge_policies(
                 // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.5.1
 
                 // Value must be superset_of superset
-                let superset_of_value_hash = get_hashset_from_values(&superset_of_op);
+                let superset_of_value_hash = get_hashset_from_values(superset_of_op);
 
                 if !superset_of_value_hash.is_subset(&operator_value_hash) {
                     bail!(
@@ -235,7 +235,7 @@ pub fn merge_policies(
             if let Some(subset_of_op) = one_metadata_merged.get("subset_of") {
                 // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.4.1
                 // Value must be subset_of subset
-                let subset_of_value_hash = get_hashset_from_values(&subset_of_op);
+                let subset_of_value_hash = get_hashset_from_values(subset_of_op);
 
                 if !operator_value_hash.is_subset(&subset_of_value_hash) {
                     bail!(
@@ -293,8 +293,8 @@ pub fn merge_policies(
 }
 
 pub fn get_ordered_array(
-    ta_orderd_items: &Vec<Value>,
-    ia_orderd_items: &Vec<Value>,
+    ta_orderd_items: &[Value],
+    ia_orderd_items: &[Value],
     added_items: &HashSet<&Value>,
 ) -> Value {
     let mut result: Vec<&Value> = Vec::new();
@@ -310,7 +310,7 @@ pub fn get_ordered_array(
             result.push(ia_o_i);
         }
     }
-    return json!(result);
+    json!(result)
 }
 
 pub fn get_hashset_from_values(values: &Value) -> HashSet<Value> {
@@ -327,21 +327,21 @@ pub fn get_hashset_from_values(values: &Value) -> HashSet<Value> {
 }
 
 pub fn is_subset_of(val: &Value, val2: &Value) -> bool {
-    let v1 = get_hashset_from_values(&val);
-    let v2 = get_hashset_from_values(&val2);
+    let v1 = get_hashset_from_values(val);
+    let v2 = get_hashset_from_values(val2);
     v1.is_subset(&v2)
 }
 
 pub fn is_superset_of(val: &Value, val2: &Value) -> bool {
-    let v1 = get_hashset_from_values(&val);
-    let v2 = get_hashset_from_values(&val2);
+    let v1 = get_hashset_from_values(val);
+    let v2 = get_hashset_from_values(val2);
     v2.is_subset(&v1)
 }
 
 pub fn intersection_of(val: &Value, val2: &Value) -> Option<HashSet<Value>> {
     let mut result: HashSet<Value> = HashSet::new();
-    let v1 = get_hashset_from_values(&val);
-    let v2 = get_hashset_from_values(&val2);
+    let v1 = get_hashset_from_values(val);
+    let v2 = get_hashset_from_values(val2);
     for x in v1.intersection(&v2) {
         result.insert(x.clone());
     }
@@ -435,7 +435,7 @@ pub fn resolve_metadata_policy(
         if let Some(policy_value_data) = policy_value.get("one_of") {
             debug!("\nWe have ONE_OF in POLICY: {:?}\n", policy_value_data);
             let vec_policy = policy_value_data.as_array().unwrap();
-            if vec_policy.contains(&metadata_value) {
+            if vec_policy.contains(metadata_value) {
                 internal_result.insert("final".to_string(), metadata_value.clone());
                 one_of_flag = true;
             }
@@ -460,7 +460,7 @@ pub fn resolve_metadata_policy(
                 if let Some(middle_data) =
                     intersection_of(policy_value_data, &current_value.clone())
                 {
-                    if middle_data.len() > 0 {
+                    if !middle_data.is_empty() {
                         internal_result.insert("final".to_string(), json!(middle_data));
                     } else {
                         let empty_vec: Vec<String> = Vec::new();
@@ -477,7 +477,7 @@ pub fn resolve_metadata_policy(
                     false => metadata_value,
                 };
                 debug!("SUPERSET: {:?} and {:?}", policy_value_data, current_value);
-                if is_subset_of(policy_value_data, &current_value) {
+                if is_subset_of(policy_value_data, current_value) {
                     internal_result.insert("final".to_string(), current_value.clone());
                 }
                 // A single object, can not be a list
@@ -530,7 +530,7 @@ pub fn resolve_metadata_policy(
             new_metadata_flag = true;
             //continue;
         }
-        if mvalue.contains_key("default") && new_metadata_flag == false {
+        if mvalue.contains_key("default") && !new_metadata_flag {
             debug!("0metadata: FOUND DEFAULT IN POLICY");
             result.insert(mkey.to_owned(), mvalue.get("default").unwrap().clone());
             new_metadata_flag = true;
@@ -590,10 +590,10 @@ pub fn resolve_metadata_policy(
         }
 
         if mvalue.contains_key("essential") {
-            if empty_subset_found == true {
+            if empty_subset_found {
                 bail!("We have an essential policy but empty subset");
             }
-            if new_metadata_flag == false {
+            if !new_metadata_flag {
                 bail!("We have an essential policy but not metadata");
             }
         }
