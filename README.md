@@ -15,3 +15,6 @@ BSD-2-Clause
 Put the file in the `./data/` directory (create it if required).
 
 
+## Major exported function(s)
+
+`resolve_metadata_policy` & `merge_policies`.
