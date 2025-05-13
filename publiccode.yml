@@ -1,0 +1,42 @@
+publiccodeYmlVersion: "0.4"
+
+name: oidfed_metadata_policy
+url: "https://github.com/SUNET/oidfed_metadata_policy"
+platforms:
+  - mac
+  - linux
+
+categories:
+  - identity-management
+
+usedBy:
+  - Sunet
+
+developmentStatus: development
+
+softwareType: "library"
+
+description:
+  en:
+    shortDescription: >
+        Implementation of metadata policy rules of OpenID Federation 1.0.
+
+    longDescription: >
+        A rust library which provides metadata policy merge and resolver functionality.
+    features:
+      - Metadata resolve
+      - Metadata policy merge 
+
+legal:
+  license: BSD-2-Clause
+
+maintenance:
+  type: "community"
+
+  contacts:
+    - name: Kushal Das <kushal@sunet.se>
+
+localisation:
+  localisationReady: false
+  availableLanguages:
+    - en
