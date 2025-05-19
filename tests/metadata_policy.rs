@@ -37,14 +37,16 @@ fn check_test_case(case: Map<String, Value>) -> Result<(), Box<dyn Error>> {
         .as_object()
         .expect("Metadata in test case should be an object");
     match oidfed_metadata_policy::resolve_metadata_policy(&merged, metadata) {
-        Err(err) => {
-            let Some(expected) = case.get("error") else {
+        Err(err) => match case.get("error") {
+            Some(expected) if expected == "invalid_metadata" => {
+                eprintln!("Case {n}: expected resolution error, received error {err}");
+                Ok(())
+            }
+            _ => {
                 let message = format!("Case {n}: resolution errored with {err}, expected success");
                 Err(message)?
-            };
-            eprintln!("Case {n}: expected resolution error {expected}, received error {err}");
-            Ok(())
-        }
+            }
+        },
         Ok(resolved) => {
             let Some(expected) = case.get("resolved") else {
                 let message = format!("Case {n}: unexpected successful resolution");
@@ -75,14 +77,16 @@ fn merge_test_case_policies(
     let ta = &case["TA"];
     let int = &case["INT"];
     match oidfed_metadata_policy::merge_policies(ta, int) {
-        Err(err) => {
-            let Some(expected) = case.get("error") else {
+        Err(err) => match case.get("error") {
+            Some(expected) if expected == "invalid_policy" => {
+                eprintln!("Case {n}: expected merge error, received error {err}");
+                Ok(None)
+            }
+            _ => {
                 let message = format!("Case {n}: merge errored with {err}, expected success");
                 Err(message)?
-            };
-            eprintln!("Case {n}: expected merge error {expected}, received error {err}");
-            Ok(None)
-        }
+            }
+        },
         Ok(merged) => {
             let Some(expected) = case.get("merged") else {
                 let message = format!("Case {n}: unexpected successful merge");
