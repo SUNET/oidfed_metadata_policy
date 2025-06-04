@@ -1,7 +1,6 @@
 use core::error::Error;
 use std::{fs::File, io::BufReader};
 
-use serde::Deserialize;
 use serde_json::{Map, Value};
 
 const TEST_FILE: &str = "data/metadata-policy-test-vectors-2025-02-13.json";
