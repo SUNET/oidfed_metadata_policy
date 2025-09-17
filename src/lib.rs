@@ -625,3 +625,57 @@ pub fn check_equal(v1: &Value, v2: &Value) -> bool {
     }
     true
 }
+
+pub fn apply_policy_on_metadata(
+    mut val: Map<String, Value>,
+    metadata: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    let mut meta_keys: HashSet<String> = HashSet::new();
+    // If the particular key of metadata exists in policy, then only we apply the
+    // policy on the metata
+    for (mkey, mvalue) in metadata.iter() {
+        // Check for the key
+        if val.contains_key(mkey) {
+            // Now we need that particular policy and actual metadata for that
+            // part.
+            let mpolicy = val.get(mkey).unwrap().as_object().unwrap();
+            let result = resolve_metadata_policy(mpolicy, mvalue.as_object().unwrap());
+            // Now we have the result for one particular metadata
+            // If it is Okay, then we should put the resolved metadata to the val
+            //
+            match result {
+                Ok(v) => {
+                    let temp = v.as_object().unwrap().get(mkey).unwrap();
+                    val.insert(mkey.clone(), temp.clone());
+                    // Now keep a note that we have used this key
+                    meta_keys.insert(mkey.clone());
+                }
+                Err(_) => {
+                    bail!("received error in applying metadata policy on metadata");
+                }
+            }
+        } else {
+            // Here the policy object does not have the key of the metadata, means
+            // we directly copy it over.
+            meta_keys.insert(mkey.clone());
+            val.insert(mkey.clone(), mvalue.clone());
+        }
+    }
+
+    // Now remove any extra key/value pair from the final resolved metadata.
+    // These extra key/values were part of policy but does not matter for this
+    // metadata.
+    let mut to_remove = Vec::new();
+    for (key, _) in val.iter() {
+        if !meta_keys.contains(key) {
+            // Then remove it
+            to_remove.push(key.clone());
+        }
+    }
+    // Now all extra key/value
+    for key in to_remove.iter() {
+        val.remove(key);
+    }
+
+    Ok(val)
+}
