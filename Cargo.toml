@@ -1,6 +1,6 @@
 [package]
 name = "oidfed_metadata_policy"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Kushal Das <kushal@sunet.se>"]
 edition = "2024"
 license = "BSD-2-Clause"
