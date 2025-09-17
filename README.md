@@ -1,12 +1,14 @@
-## Under heavy development
-
-DO NOT USE IN PRODUCTION.
-
-This is an implementation of `metadata policy` resolve & applymethods for [OpenID Federation 1.0 draft 42](https://openid.net/specs/openid-federation-1_0.html). 
+This is an implementation of `metadata policy` resolve & applymethods for [OpenID Federation 1.0 draft 43](https://openid.net/specs/openid-federation-1_0.html). 
 
 ## LICENSE
 
 BSD-2-Clause
+
+## To run the tests
+
+```
+cargo test
+```
 
 ## Test data I am using
 
