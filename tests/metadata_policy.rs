@@ -1,4 +1,5 @@
 use core::error::Error;
+use env_logger;
 use std::{fs::File, io::BufReader};
 
 use serde_json::{Map, Value};
@@ -9,6 +10,7 @@ const TEST_DATA_SOURCE: &str =
 
 #[test]
 fn test_policy_constraints() {
+    env_logger::init();
     let file = File::open(TEST_FILE).expect(&format!(
         "Please download test data from {TEST_DATA_SOURCE} and save it as {TEST_FILE}"
     ));
@@ -75,7 +77,7 @@ fn merge_test_case_policies(
         .expect("Test case should have numeric index n");
     let ta = &case["TA"];
     let int = &case["INT"];
-    match oidfed_metadata_policy::merge_policies(ta, int) {
+    match oidfed_metadata_policy::merge_one_type_policy(ta, int) {
         Err(err) => match case.get("error") {
             Some(expected) if expected == "invalid_policy" => {
                 eprintln!("Case {n}: expected merge error, received error {err}");
