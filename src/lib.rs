@@ -706,6 +706,28 @@ pub fn apply_policy_document_on_metadata(
             return apply_policy_on_metadata(upper_policy, meta);
         }
     }
+    // First case is where the entity type is not there in policy.
+    if metadata.contains_key("openid_provider") {
+        // Now we apply
+        let meta: Map<String, Value> = metadata
+            .get("openid_provider")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        return Ok(meta);
+    }
+    if metadata.contains_key("openid_relying_party") {
+        // Now we apply
+        let meta: Map<String, Value> = metadata
+            .get("openid_relying_party")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        return Ok(meta);
+    }
+
     // If we reach here, means there is no proper metadata for that entity type.
     // This SHOULD NOT happen.
     bail!("Could not apply policy to metadata.");
