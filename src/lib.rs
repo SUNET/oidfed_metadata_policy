@@ -663,6 +663,54 @@ pub fn check_equal(v1: &Value, v2: &Value) -> bool {
     true
 }
 
+/// We can apply a full policy document on the raw metadata of a given entity.
+/// The entity must be one of `openid_relying_party` or `openid_provider`
+pub fn apply_policy_document_on_metadata(
+    policy: Map<String, Value>,
+    metadata: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    // Here we have the full policy document and full metadata.
+    // We We need to select only the relevant part and apply that on the metadata.
+
+    if policy.contains_key("openid_relying_party") {
+        let upper_policy = policy
+            .get("openid_relying_party")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        if metadata.contains_key("openid_relying_party") {
+            // Now we apply
+            let meta = metadata
+                .get("openid_relying_party")
+                .unwrap()
+                .as_object()
+                .unwrap();
+            return apply_policy_on_metadata(upper_policy, meta);
+        }
+    }
+    if policy.contains_key("openid_provider") {
+        let upper_policy = policy
+            .get("openid_provider")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        if metadata.contains_key("openid_provider") {
+            // Now we apply
+            let meta = metadata
+                .get("openid_provider")
+                .unwrap()
+                .as_object()
+                .unwrap();
+            return apply_policy_on_metadata(upper_policy, meta);
+        }
+    }
+    // If we reach here, means there is no proper metadata for that entity type.
+    // This SHOULD NOT happen.
+    bail!("Could not apply policy to metadata.");
+}
+
 /// Applies the given policy on the given metadata and then
 /// returns the final metadata based upson policy.
 pub fn apply_policy_on_metadata(
