@@ -4,7 +4,44 @@ use serde_json::{Map, Value, json};
 
 use std::collections::HashSet;
 
+/// Merges TA policy on top of the IA policy according the policy merging rules.
 pub fn merge_policies(
+    ta_policies_in: &Value,
+    ia_policies_in: &Value,
+) -> Result<Map<String, Value>> {
+    // This will hold the final merge result
+    let mut merged: Map<String, Value> = Map::new();
+    let m1: Map<String, Value> = Map::new();
+    let m2: Map<String, Value> = Map::new();
+    let tapolicies: &Map<String, Value> = ta_policies_in.as_object().unwrap_or(&m1);
+    let iapolicies: &Map<String, Value> = ia_policies_in.as_object().unwrap_or(&m2);
+
+    // First check all the entity types in ia
+    for (oidf_entity_type, value) in iapolicies.into_iter() {
+        if !tapolicies.contains_key(oidf_entity_type) {
+            // Directly copy over
+            merged.insert(oidf_entity_type.clone(), value.clone());
+            continue;
+        }
+        // If we are here, means that entity_type is in both policies
+        let inta = tapolicies.get(oidf_entity_type).unwrap();
+        let m = merge_one_type_policy(inta, value)?;
+        merged.insert(oidf_entity_type.clone(), json!(m));
+    }
+
+    // Now for the enity types in TA but not in IA.
+    for (oidf_entity_type, value) in tapolicies.into_iter() {
+        if !iapolicies.contains_key(oidf_entity_type) {
+            // Directly copy over
+            merged.insert(oidf_entity_type.clone(), value.clone());
+            continue;
+        }
+    }
+
+    Ok(merged)
+}
+
+pub fn merge_one_type_policy(
     ta_policies_in: &Value,
     ia_policies_in: &Value,
 ) -> Result<Map<String, Value>> {
