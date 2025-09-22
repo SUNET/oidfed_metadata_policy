@@ -19,4 +19,6 @@ Put the file in the `./data/` directory (create it if required).
 
 ## Major exported function(s)
 
-`resolve_metadata_policy` & `merge_policies` & `apply_policy_on_metadata`.
+- `merge_policies`
+- `apply_policy_document_on_metadata`
+
