@@ -1,4 +1,5 @@
 use core::error::Error;
+use env_logger;
 use std::{fs::File, io::BufReader};
 
 use serde_json::{Map, Value};
@@ -9,6 +10,7 @@ const TEST_DATA_SOURCE: &str =
 
 #[test]
 fn test_policy_constraints() {
+    env_logger::init();
     let file = File::open(TEST_FILE).expect(&format!(
         "Please download test data from {TEST_DATA_SOURCE} and save it as {TEST_FILE}"
     ));
