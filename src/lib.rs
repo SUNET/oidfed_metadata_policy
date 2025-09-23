@@ -663,14 +663,61 @@ pub fn check_equal(v1: &Value, v2: &Value) -> bool {
     true
 }
 
+/// To apply the forced metadata from a subordinate statement to
+/// the metadata of the entity.
+fn apply_forced_metadata(
+    kind: &str,
+    metadata: &Map<String, Value>,
+    forced_meta: &Map<String, Value>,
+) -> Map<String, Value> {
+    let mut meta = metadata.get(kind).unwrap().as_object().unwrap().clone();
+    match forced_meta.contains_key(kind) {
+        false => return meta,
+        true => {
+            let forced_meta_details: &Map<String, Value> =
+                forced_meta.get(kind).unwrap().as_object().unwrap();
+            // means we need to apply the forced metadata
+            for (fmetadata_name, fmetadata_value) in forced_meta_details.iter() {
+                meta.insert(fmetadata_name.clone(), fmetadata_value.clone());
+            }
+            return meta;
+        }
+    }
+}
+
 /// We can apply a full policy document on the raw metadata of a given entity.
 /// The entity must be one of `openid_relying_party` or `openid_provider`
 pub fn apply_policy_document_on_metadata(
-    policy: Map<String, Value>,
+    full_policy: Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     // Here we have the full policy document and full metadata.
-    // We We need to select only the relevant part and apply that on the metadata.
+    // We We need to check if it has any actual policy or not.
+
+    let policy: Map<String, Value> = match full_policy.contains_key("metadata_policy") {
+        true => full_policy
+            .get("metadata_policy")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone(),
+        false => Map::new(),
+    };
+
+    debug!("POLICY: {:?}", policy);
+
+    // Next we should check for any forced metadata or not.
+    let forced_meta: Map<String, Value> = match full_policy.contains_key("metadata") {
+        true => full_policy
+            .get("metadata")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone(),
+        false => Map::new(),
+    };
+
+    debug!("FORCED_METADATA: {:?}", forced_meta);
 
     if policy.contains_key("openid_relying_party") {
         let upper_policy = policy
@@ -681,12 +728,8 @@ pub fn apply_policy_document_on_metadata(
             .clone();
         if metadata.contains_key("openid_relying_party") {
             // Now we apply
-            let meta = metadata
-                .get("openid_relying_party")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            return apply_policy_on_metadata(upper_policy, meta);
+            let meta = apply_forced_metadata("openid_relying_party", &metadata, &forced_meta);
+            return apply_policy_on_metadata(upper_policy, &meta);
         }
     }
     if policy.contains_key("openid_provider") {
@@ -698,33 +741,19 @@ pub fn apply_policy_document_on_metadata(
             .clone();
         if metadata.contains_key("openid_provider") {
             // Now we apply
-            let meta = metadata
-                .get("openid_provider")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            return apply_policy_on_metadata(upper_policy, meta);
+            let meta = apply_forced_metadata("openid_provider", &metadata, &forced_meta);
+            return apply_policy_on_metadata(upper_policy, &meta);
         }
     }
     // First case is where the entity type is not there in policy.
     if metadata.contains_key("openid_provider") {
         // Now we apply
-        let meta: Map<String, Value> = metadata
-            .get("openid_provider")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .clone();
+        let meta = apply_forced_metadata("openid_provider", &metadata, &forced_meta);
         return Ok(meta);
     }
     if metadata.contains_key("openid_relying_party") {
         // Now we apply
-        let meta: Map<String, Value> = metadata
-            .get("openid_relying_party")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .clone();
+        let meta = apply_forced_metadata("openid_relying_party", &metadata, &forced_meta);
         return Ok(meta);
     }
 
@@ -736,55 +765,19 @@ pub fn apply_policy_document_on_metadata(
 /// Applies the given policy on the given metadata and then
 /// returns the final metadata based upson policy.
 pub fn apply_policy_on_metadata(
-    mut policy: Map<String, Value>,
+    policy: Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
-    let mut meta_keys: HashSet<String> = HashSet::new();
-    // If the particular key of metadata exists in policy, then only we apply the
-    // policy on the metadata.
-    for (mkey, mvalue) in metadata.iter() {
-        // Check for the key
-        if policy.contains_key(mkey) {
-            // Now we need that particular policy and actual metadata for that
-            // part.
-            let mpolicy = policy.get(mkey).unwrap().as_object().unwrap();
-            let result = resolve_metadata_policy(mpolicy, mvalue.as_object().unwrap());
-            // Now we have the result for one particular metadata
-            // If it is Okay, then we should put the resolved metadata to the val
-            //
-            match result {
-                Ok(v) => {
-                    let temp = v.as_object().unwrap().get(mkey).unwrap();
-                    policy.insert(mkey.clone(), temp.clone());
-                    // Now keep a note that we have used this key
-                    meta_keys.insert(mkey.clone());
-                }
-                Err(_) => {
-                    bail!("received error in applying metadata policy on metadata");
-                }
-            }
-        } else {
-            // Here the policy object does not have the key of the metadata, means
-            // we directly copy it over.
-            meta_keys.insert(mkey.clone());
-            policy.insert(mkey.clone(), mvalue.clone());
+    let result = resolve_metadata_policy(&policy, metadata);
+    // If it is Okay, then we should put the resolved metadata to the val
+    //
+    match result {
+        Ok(v) => {
+            let temp: Map<String, Value> = v.as_object().unwrap().clone();
+            return Ok(temp);
+        }
+        Err(_) => {
+            bail!("received error in applying metadata policy on metadata");
         }
     }
-
-    // Now remove any extra key/value pair from the final resolved metadata.
-    // These extra key/values were part of policy but does not matter for this
-    // metadata.
-    let mut to_remove = Vec::new();
-    for (key, _) in policy.iter() {
-        if !meta_keys.contains(key) {
-            // Then remove it
-            to_remove.push(key.clone());
-        }
-    }
-    // Now all extra key/value
-    for key in to_remove.iter() {
-        policy.remove(key);
-    }
-
-    Ok(policy)
 }
