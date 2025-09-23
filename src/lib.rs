@@ -674,8 +674,10 @@ fn apply_forced_metadata(
     match forced_meta.contains_key(kind) {
         false => return meta,
         true => {
+            let forced_meta_details: &Map<String, Value> =
+                forced_meta.get(kind).unwrap().as_object().unwrap();
             // means we need to apply the forced metadata
-            for (fmetadata_name, fmetadata_value) in forced_meta.iter() {
+            for (fmetadata_name, fmetadata_value) in forced_meta_details.iter() {
                 meta.insert(fmetadata_name.clone(), fmetadata_value.clone());
             }
             return meta;
