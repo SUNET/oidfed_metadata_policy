@@ -747,6 +747,9 @@ pub fn apply_policy_on_metadata(
         if policy.contains_key(mkey) {
             // Now we need that particular policy and actual metadata for that
             // part.
+
+            debug!("MKEY: {:?}\n", mkey);
+            debug!("MVALUE: {:?}\n", mvalue);
             let mpolicy = policy.get(mkey).unwrap().as_object().unwrap();
             let result = resolve_metadata_policy(mpolicy, mvalue.as_object().unwrap());
             // Now we have the result for one particular metadata
