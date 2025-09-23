@@ -702,6 +702,8 @@ pub fn apply_policy_document_on_metadata(
         false => Map::new(),
     };
 
+    debug!("POLICY: {:?}", policy);
+
     // Next we should check for any forced metadata or not.
     let forced_meta: Map<String, Value> = match full_policy.contains_key("metadata") {
         true => full_policy
@@ -712,6 +714,8 @@ pub fn apply_policy_document_on_metadata(
             .clone(),
         false => Map::new(),
     };
+
+    debug!("FORCED_METADATA: {:?}", forced_meta);
 
     if policy.contains_key("openid_relying_party") {
         let upper_policy = policy
