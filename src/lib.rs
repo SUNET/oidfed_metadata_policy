@@ -663,14 +663,55 @@ pub fn check_equal(v1: &Value, v2: &Value) -> bool {
     true
 }
 
+/// To apply the forced metadata from a subordinate statement to
+/// the metadata of the entity.
+fn apply_forced_metadata(
+    kind: &str,
+    metadata: &Map<String, Value>,
+    forced_meta: &Map<String, Value>,
+) -> Map<String, Value> {
+    let mut meta = metadata.get(kind).unwrap().as_object().unwrap().clone();
+    match forced_meta.contains_key(kind) {
+        false => return meta,
+        true => {
+            // means we need to apply the forced metadata
+            for (fmetadata_name, fmetadata_value) in forced_meta.iter() {
+                meta.insert(fmetadata_name.clone(), fmetadata_value.clone());
+            }
+            return meta;
+        }
+    }
+}
+
 /// We can apply a full policy document on the raw metadata of a given entity.
 /// The entity must be one of `openid_relying_party` or `openid_provider`
 pub fn apply_policy_document_on_metadata(
-    policy: Map<String, Value>,
+    full_policy: Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     // Here we have the full policy document and full metadata.
-    // We We need to select only the relevant part and apply that on the metadata.
+    // We We need to check if it has any actual policy or not.
+
+    let policy: Map<String, Value> = match full_policy.contains_key("metadata_policy") {
+        true => full_policy
+            .get("metadata_policy")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone(),
+        false => Map::new(),
+    };
+
+    // Next we should check for any forced metadata or not.
+    let forced_meta: Map<String, Value> = match full_policy.contains_key("metadata") {
+        true => full_policy
+            .get("metadata")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone(),
+        false => Map::new(),
+    };
 
     if policy.contains_key("openid_relying_party") {
         let upper_policy = policy
@@ -681,12 +722,8 @@ pub fn apply_policy_document_on_metadata(
             .clone();
         if metadata.contains_key("openid_relying_party") {
             // Now we apply
-            let meta = metadata
-                .get("openid_relying_party")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            return apply_policy_on_metadata(upper_policy, meta);
+            let meta = apply_forced_metadata("openid_relying_party", &metadata, &forced_meta);
+            return apply_policy_on_metadata(upper_policy, &meta);
         }
     }
     if policy.contains_key("openid_provider") {
@@ -698,33 +735,19 @@ pub fn apply_policy_document_on_metadata(
             .clone();
         if metadata.contains_key("openid_provider") {
             // Now we apply
-            let meta = metadata
-                .get("openid_provider")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            return apply_policy_on_metadata(upper_policy, meta);
+            let meta = apply_forced_metadata("openid_provider", &metadata, &forced_meta);
+            return apply_policy_on_metadata(upper_policy, &meta);
         }
     }
     // First case is where the entity type is not there in policy.
     if metadata.contains_key("openid_provider") {
         // Now we apply
-        let meta: Map<String, Value> = metadata
-            .get("openid_provider")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .clone();
+        let meta = apply_forced_metadata("openid_provider", &metadata, &forced_meta);
         return Ok(meta);
     }
     if metadata.contains_key("openid_relying_party") {
         // Now we apply
-        let meta: Map<String, Value> = metadata
-            .get("openid_relying_party")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .clone();
+        let meta = apply_forced_metadata("openid_relying_party", &metadata, &forced_meta);
         return Ok(meta);
     }
 
