@@ -1,6 +1,6 @@
 [package]
 name = "oidfed_metadata_policy"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Kushal Das <kushal@sunet.se>"]
 edition = "2024"
 license = "BSD-2-Clause"
@@ -8,9 +8,6 @@ repository = "https://github.com/SUNET/oidfed_metadata_policy"
 description = "To merge and resolve and apply OpenID Federation metadata policy"
 exclude = ["data/**/*",]
 
-
-[lib]
-doctest = false
 
 [dependencies]
 anyhow = "1.0.98"
