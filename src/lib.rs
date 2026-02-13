@@ -1037,7 +1037,7 @@ fn apply_forced_metadata(
 ) -> Map<String, Value> {
     let mut meta = metadata.get(kind).unwrap().as_object().unwrap().clone();
     match forced_meta.contains_key(kind) {
-        false => return meta,
+        false => meta,
         true => {
             let forced_meta_details: &Map<String, Value> =
                 forced_meta.get(kind).unwrap().as_object().unwrap();
@@ -1045,7 +1045,7 @@ fn apply_forced_metadata(
             for (fmetadata_name, fmetadata_value) in forced_meta_details.iter() {
                 meta.insert(fmetadata_name.clone(), fmetadata_value.clone());
             }
-            return meta;
+            meta
         }
     }
 }
@@ -1131,28 +1131,20 @@ pub fn apply_policy_document_on_metadata(
     // Here we have the full policy document and full metadata.
     // We need to check if it has any actual policy or not.
 
-    let policy: Map<String, Value> = match full_policy.contains_key("metadata_policy") {
-        true => full_policy
-            .get("metadata_policy")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .clone(),
-        false => Map::new(),
-    };
+    let policy: Map<String, Value> = full_policy
+        .get("metadata_policy")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
 
     debug!("POLICY: {:?}", policy);
 
     // Next we should check for any forced metadata or not.
-    let forced_meta: Map<String, Value> = match full_policy.contains_key("metadata") {
-        true => full_policy
-            .get("metadata")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .clone(),
-        false => Map::new(),
-    };
+    let forced_meta: Map<String, Value> = full_policy
+        .get("metadata")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
 
     debug!("FORCED_METADATA: {:?}", forced_meta);
 
@@ -1250,7 +1242,7 @@ pub fn apply_policy_on_metadata(
     match result {
         Ok(v) => {
             let temp: Map<String, Value> = v.as_object().unwrap().clone();
-            return Ok(temp);
+            Ok(temp)
         }
         Err(_) => {
             bail!("received error in applying metadata policy on metadata");
