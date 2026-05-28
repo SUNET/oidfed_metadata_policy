@@ -1,4 +1,5 @@
-This is an implementation of `metadata policy` resolve & applymethods for [OpenID Federation 1.0 draft 43](https://openid.net/specs/openid-federation-1_0.html). 
+This is an implementation of `metadata policy` resolve & applymethods for
+[OpenID Federation 1.1](https://openid.net/specs/openid-federation-1_1.html)
 
 ## LICENSE
 
