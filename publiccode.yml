@@ -1,4 +1,4 @@
-publiccodeYmlVersion: "0.4"
+publiccodeYmlVersion: "0"
 
 name: oidfed_metadata_policy
 url: "https://github.com/SUNET/oidfed_metadata_policy"
@@ -22,7 +22,11 @@ description:
         Implementation of metadata policy rules of OpenID Federation 1.0.
 
     longDescription: >
-        A rust library which provides metadata policy merge and resolver functionality.
+        A Rust library implementing the metadata policy resolve and apply
+        methods defined in OpenID Federation 1.0 (draft 43). It exposes
+        primitives to merge policy documents along a trust chain and to
+        apply a resolved policy to a metadata statement, so federation
+        operators can enforce policy at any node of the chain.
     features:
       - Metadata resolve
       - Metadata policy merge 
