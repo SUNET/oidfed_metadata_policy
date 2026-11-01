@@ -128,3 +128,29 @@ fn test_merge_superset_of_is_union() {
             .unwrap();
     assert!(oidfed_metadata_policy::check_equal(&resolved, &metadata));
 }
+
+#[test]
+fn test_merge_refuses_one_of_with_add_or_subset_of() {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.4
+    // one_of may be combined with value, default and essential only, and "Combinations that are
+    // not allowed MUST produce a policy error" (section 6.1.3), for individual as well as merged
+    // metadata parameter policies.
+    for operator in ["add", "subset_of", "superset_of"] {
+        let ta = json!({"contacts": {operator: ["a"], "one_of": ["a"]}});
+        assert!(
+            oidfed_metadata_policy::merge_one_type_policy(&ta, &json!({})).is_err(),
+            "one_of with {operator} in one policy"
+        );
+
+        let ta = json!({"contacts": {operator: ["a"]}});
+        let int = json!({"contacts": {"one_of": ["a"]}});
+        assert!(
+            oidfed_metadata_policy::merge_one_type_policy(&ta, &int).is_err(),
+            "one_of with {operator} after the merge"
+        );
+    }
+
+    // one_of with default and essential is allowed.
+    let ta = json!({"contacts": {"one_of": ["a"], "default": "a", "essential": true}});
+    oidfed_metadata_policy::merge_one_type_policy(&ta, &json!({})).unwrap();
+}
