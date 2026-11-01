@@ -736,6 +736,59 @@ pub fn resolve_metadata_policy(
     policy: &Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Value> {
+    if !policy.contains_key(SCOPE) && !metadata.contains_key(SCOPE) {
+        return resolve_parameters(policy, metadata);
+    }
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.8-3
+    // scope is a string of space-separated values, which the operators regard and process as a
+    // string array. The resulting scope is a space-separated string again.
+    let mut policy = policy.clone();
+    if let Some(Value::Object(operators)) = policy.get_mut(SCOPE) {
+        for operator in ["value", "default"] {
+            if let Some(operator_value) = operators.get_mut(operator) {
+                scope_to_array(operator_value);
+            }
+        }
+    }
+    let mut metadata = metadata.clone();
+    if let Some(scope) = metadata.get_mut(SCOPE) {
+        scope_to_array(scope);
+    }
+    let mut resolved = resolve_parameters(&policy, &metadata)?;
+    if let Some(scope) = resolved.get_mut(SCOPE) {
+        scope_to_string(scope);
+    }
+    Ok(resolved)
+}
+
+/// The `scope` metadata parameter, a string of space-separated values.
+const SCOPE: &str = "scope";
+
+/// Turns a space-separated `scope` string into an array of its values.
+fn scope_to_array(scope: &mut Value) {
+    if let Value::String(values) = scope {
+        *scope = json!(
+            values
+                .split(' ')
+                .filter(|v| !v.is_empty())
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+/// Turns an array of `scope` values back into a space-separated string.
+fn scope_to_string(scope: &mut Value) {
+    if let Some(values) = scope
+        .as_array()
+        .and_then(|values| values.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+    {
+        *scope = json!(values.join(" "));
+    }
+}
+
+/// Resolves the metadata parameters against their policies, as
+/// [`resolve_metadata_policy`] does once `scope` is an array.
+fn resolve_parameters(policy: &Map<String, Value>, metadata: &Map<String, Value>) -> Result<Value> {
     debug!("--IN RESOLVE FUNCTION--\n");
     debug!("\npolicy: {:?}", policy);
     debug!("\nmetadata {:?}\n", metadata);
@@ -770,12 +823,20 @@ pub fn resolve_metadata_policy(
             debug!("\nWe have ADD in POLICY: {:?}\n", policy_value_data);
             let mut iresult = Vec::new();
             // we have both add and metadata value
-            let mvalue = metadata_value.as_array().unwrap();
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3
+            // A metadata parameter or operator JSON value type that is not supported is a policy
+            // error.
+            let Some(mvalue) = metadata_value.as_array() else {
+                bail!("add needs an array metadata value for {metadata_name}");
+            };
             for v in mvalue.iter() {
                 iresult.push(v);
             }
             debug!("Copied all metadata in iresult: {:?}\n", iresult);
-            for v in policy_value_data.as_array().unwrap().iter() {
+            let Some(add_values) = policy_value_data.as_array() else {
+                bail!("add needs an array operator value for {metadata_name}");
+            };
+            for v in add_values.iter() {
                 // Don't add if we already added
                 if !iresult.contains(&v) {
                     iresult.push(v);
