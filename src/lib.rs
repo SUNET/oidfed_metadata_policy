@@ -144,7 +144,6 @@ pub fn merge_policies(
 /// Returns an error if:
 /// - `value` or `default` operators have different values in TA and IA
 /// - `one_of` in IA contains values not present in TA's `one_of`
-/// - `superset_of` in TA is not a subset of IA's `superset_of`
 /// - Combined operators violate policy constraints
 ///
 /// # Example
@@ -316,18 +315,11 @@ pub fn merge_one_type_policy(
                     let ta_orderd_items = value_from_ta.as_array().unwrap();
                     let ia_items = get_hashset_from_values(value_from_ia);
                     let ia_orderd_items = value_from_ia.as_array().unwrap();
-                    // There can not any item in ta which is not there in ia
-                    // T < I
-                    if ta_items.is_subset(&ia_items) {
-                        // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6-10
-                        let merged_value: HashSet<&Value> = ta_items.union(&ia_items).collect();
-                        // All good for IA
-                        let result =
-                            get_ordered_array(ta_orderd_items, ia_orderd_items, &merged_value);
-                        one_metadata_merged.insert("superset_of".to_string(), json!(result));
-                    } else {
-                        bail!("Policy error: IA has extra items in subset_of");
-                    }
+                    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6-10
+                    // The merge is the union of the operator values, whichever side holds more.
+                    let merged_value: HashSet<&Value> = ta_items.union(&ia_items).collect();
+                    let result = get_ordered_array(ta_orderd_items, ia_orderd_items, &merged_value);
+                    one_metadata_merged.insert("superset_of".to_string(), json!(result));
                 }
                 "essential" => {
                     let ta_item = value_from_ta.as_bool().unwrap();

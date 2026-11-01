@@ -2,7 +2,7 @@ use core::error::Error;
 use env_logger;
 use std::{fs::File, io::BufReader};
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 const TEST_FILE: &str = "data/metadata-policy-test-vectors-2025-02-13.json";
 const TEST_DATA_SOURCE: &str =
@@ -105,4 +105,26 @@ fn merge_test_case_policies(
             Ok(Some(merged))
         }
     }
+}
+
+#[test]
+fn test_merge_superset_of_is_union() {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6
+    // "The result of merging the values of two superset_of operators is the union of the
+    // operator values."
+    let ta = json!({"response_types": {"superset_of": ["code"]}});
+    let int = json!({"response_types": {"superset_of": ["id_token"]}});
+    let merged = oidfed_metadata_policy::merge_one_type_policy(&ta, &int).unwrap();
+    assert_eq!(
+        merged,
+        *json!({"response_types": {"superset_of": ["code", "id_token"]}})
+            .as_object()
+            .unwrap()
+    );
+
+    let metadata = json!({"response_types": ["code", "id_token", "token"]});
+    let resolved =
+        oidfed_metadata_policy::resolve_metadata_policy(&merged, metadata.as_object().unwrap())
+            .unwrap();
+    assert!(oidfed_metadata_policy::check_equal(&resolved, &metadata));
 }
