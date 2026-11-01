@@ -144,7 +144,6 @@ pub fn merge_policies(
 /// Returns an error if:
 /// - `value` or `default` operators have different values in TA and IA
 /// - `one_of` in IA contains values not present in TA's `one_of`
-/// - `superset_of` in TA is not a subset of IA's `superset_of`
 /// - Combined operators violate policy constraints
 ///
 /// # Example
@@ -184,6 +183,9 @@ pub fn merge_one_type_policy(
         // First scenario when we have in TA but not in IA
         if !ia_policies.contains_key(oid_meta_name) {
             // directly copy over to merged
+            if let Some(policy) = value.as_object() {
+                check_operator_combinations(policy)?;
+            }
             merged.insert(oid_meta_name.clone(), value.clone());
             continue;
         }
@@ -316,18 +318,11 @@ pub fn merge_one_type_policy(
                     let ta_orderd_items = value_from_ta.as_array().unwrap();
                     let ia_items = get_hashset_from_values(value_from_ia);
                     let ia_orderd_items = value_from_ia.as_array().unwrap();
-                    // There can not any item in ta which is not there in ia
-                    // T < I
-                    if ta_items.is_subset(&ia_items) {
-                        // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6-10
-                        let merged_value: HashSet<&Value> = ta_items.union(&ia_items).collect();
-                        // All good for IA
-                        let result =
-                            get_ordered_array(ta_orderd_items, ia_orderd_items, &merged_value);
-                        one_metadata_merged.insert("superset_of".to_string(), json!(result));
-                    } else {
-                        bail!("Policy error: IA has extra items in subset_of");
-                    }
+                    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6-10
+                    // The merge is the union of the operator values, whichever side holds more.
+                    let merged_value: HashSet<&Value> = ta_items.union(&ia_items).collect();
+                    let result = get_ordered_array(ta_orderd_items, ia_orderd_items, &merged_value);
+                    one_metadata_merged.insert("superset_of".to_string(), json!(result));
                 }
                 "essential" => {
                     let ta_item = value_from_ta.as_bool().unwrap();
@@ -340,109 +335,7 @@ pub fn merge_one_type_policy(
                 _ => (),
             }
         }
-        // Now we have to verify each of the operator if they are allowed
-        if let Some(value_op) = one_metadata_merged.get("value") {
-            let operator_value_hash = get_hashset_from_values(value_op);
-            // Means we also have add
-            if let Some(add_op) = one_metadata_merged.get("add") {
-                let add_value_hash = get_hashset_from_values(add_op);
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.1.1
-                if !add_value_hash.is_subset(&operator_value_hash) {
-                    // error
-                    bail!(
-                        r"Subordinate policy merge error: the add must be a subset of the values of value"
-                    );
-                }
-            }
-
-            // Means we also have default
-            if let Some(_default_op) = one_metadata_merged.get("default") {
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.2.1
-                // Value should not be null
-                if value_op.is_null() {
-                    bail!(r"Subordinate policy merge error: the value must be non-null");
-                }
-            }
-
-            // Means we also have one_of
-            if let Some(one_of_op) = one_metadata_merged.get("one_of") {
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.3.1
-                // Value must be among the one_of value
-                let one_of_value_hash = get_hashset_from_values(one_of_op);
-                if !operator_value_hash.is_subset(&one_of_value_hash) {
-                    debug!("{:?}", operator_value_hash);
-                    debug!("{:?}", one_of_value_hash);
-                    bail!(
-                        r"Subordinate policy merge error: The value must be among the one_of values"
-                    );
-                }
-            }
-
-            // Means we also have superset_of
-            if let Some(superset_of_op) = one_metadata_merged.get("superset_of") {
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.5.1
-
-                // Value must be superset_of superset
-                let superset_of_value_hash = get_hashset_from_values(superset_of_op);
-
-                if !superset_of_value_hash.is_subset(&operator_value_hash) {
-                    bail!(
-                        r"Subordinate policy merge error: The value must be a superset of the values of superset_of"
-                    );
-                }
-            }
-            // Means we also have subset_of
-            if let Some(subset_of_op) = one_metadata_merged.get("subset_of") {
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.4.1
-                // Value must be subset_of subset
-                let subset_of_value_hash = get_hashset_from_values(subset_of_op);
-
-                if !operator_value_hash.is_subset(&subset_of_value_hash) {
-                    bail!(
-                        r"Subordinate policy merge error: The value must be a subset of the values of subset_of"
-                    );
-                }
-            }
-            // Means we also have essential
-            if let Some(essential_op) = one_metadata_merged.get("essential") {
-                //https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.6.1
-                // Value should not be null
-                let es_val = essential_op.as_bool().unwrap();
-                if es_val && value_op.is_null() {
-                    bail!(
-                        r"Subordinate policy merge error: The value must be non-null when essential is true"
-                    );
-                }
-            }
-        }
-        if let Some(add_op) = one_metadata_merged.get("add") {
-            let operator_add_hash = get_hashset_from_values(add_op);
-            // Means we also have subset
-            if let Some(subset_op) = one_metadata_merged.get("subset_of") {
-                let subset_hash = get_hashset_from_values(subset_op);
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.1.1
-                if !operator_add_hash.is_subset(&subset_hash) {
-                    // error
-                    bail!(
-                        r"Subordinate policy merge error: The values of add must be a subset of the values of subset_of"
-                    );
-                }
-            }
-        }
-        if let Some(subset_op) = one_metadata_merged.get("subset_of") {
-            let operator_subset_hash = get_hashset_from_values(subset_op);
-            // Means we also have superset_of
-            if let Some(superset_op) = one_metadata_merged.get("superset_of") {
-                let superset_hash = get_hashset_from_values(superset_op);
-                // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.5-8.4.1
-                if !superset_hash.is_subset(&operator_subset_hash) {
-                    // error
-                    bail!(
-                        r"Subordinate policy merge error: The values of subset_of must be a superset of the values of superset_of"
-                    );
-                }
-            }
-        }
+        check_operator_combinations(&one_metadata_merged)?;
 
         // We are done for one metadata, merge it to final answer
         merged.insert(oid_meta_name.to_string(), json!(one_metadata_merged));
@@ -450,6 +343,124 @@ pub fn merge_one_type_policy(
 
     // Now loop
     Ok(merged)
+}
+
+/// Checks that the operators of one metadata parameter policy may be combined with each other.
+///
+/// Combinations that are not allowed produce a policy error, for individual as well as merged
+/// metadata parameter policies, as described in
+/// [Section 6.1.3](https://openid.net/specs/openid-federation-1_0.html#section-6.1.3).
+fn check_operator_combinations(policy: &Map<String, Value>) -> Result<()> {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.4
+    // one_of may be combined with value, default and essential only.
+    if policy.contains_key("one_of") {
+        for operator in ["add", "subset_of", "superset_of"] {
+            if policy.contains_key(operator) {
+                bail!("Subordinate policy merge error: one_of can not be combined with {operator}");
+            }
+        }
+    }
+    if let Some(value_op) = policy.get("value") {
+        let operator_value_hash = get_hashset_from_values(value_op);
+        // Means we also have add
+        if let Some(add_op) = policy.get("add") {
+            let add_value_hash = get_hashset_from_values(add_op);
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.1.1
+            if !add_value_hash.is_subset(&operator_value_hash) {
+                // error
+                bail!(
+                    r"Subordinate policy merge error: the add must be a subset of the values of value"
+                );
+            }
+        }
+
+        // Means we also have default
+        if let Some(_default_op) = policy.get("default") {
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.2.1
+            // Value should not be null
+            if value_op.is_null() {
+                bail!(r"Subordinate policy merge error: the value must be non-null");
+            }
+        }
+
+        // Means we also have one_of
+        if let Some(one_of_op) = policy.get("one_of") {
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.3.1
+            // Value must be among the one_of value
+            let one_of_value_hash = get_hashset_from_values(one_of_op);
+            if !operator_value_hash.is_subset(&one_of_value_hash) {
+                debug!("{:?}", operator_value_hash);
+                debug!("{:?}", one_of_value_hash);
+                bail!(r"Subordinate policy merge error: The value must be among the one_of values");
+            }
+        }
+
+        // Means we also have superset_of
+        if let Some(superset_of_op) = policy.get("superset_of") {
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.5.1
+
+            // Value must be superset_of superset
+            let superset_of_value_hash = get_hashset_from_values(superset_of_op);
+
+            if !superset_of_value_hash.is_subset(&operator_value_hash) {
+                bail!(
+                    r"Subordinate policy merge error: The value must be a superset of the values of superset_of"
+                );
+            }
+        }
+        // Means we also have subset_of
+        if let Some(subset_of_op) = policy.get("subset_of") {
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.4.1
+            // Value must be subset_of subset
+            let subset_of_value_hash = get_hashset_from_values(subset_of_op);
+
+            if !operator_value_hash.is_subset(&subset_of_value_hash) {
+                bail!(
+                    r"Subordinate policy merge error: The value must be a subset of the values of subset_of"
+                );
+            }
+        }
+        // Means we also have essential
+        if let Some(essential_op) = policy.get("essential") {
+            //https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.6.1
+            // Value should not be null
+            let es_val = essential_op.as_bool().unwrap();
+            if es_val && value_op.is_null() {
+                bail!(
+                    r"Subordinate policy merge error: The value must be non-null when essential is true"
+                );
+            }
+        }
+    }
+    if let Some(add_op) = policy.get("add") {
+        let operator_add_hash = get_hashset_from_values(add_op);
+        // Means we also have subset
+        if let Some(subset_op) = policy.get("subset_of") {
+            let subset_hash = get_hashset_from_values(subset_op);
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.1-8.1.1
+            if !operator_add_hash.is_subset(&subset_hash) {
+                // error
+                bail!(
+                    r"Subordinate policy merge error: The values of add must be a subset of the values of subset_of"
+                );
+            }
+        }
+    }
+    if let Some(subset_op) = policy.get("subset_of") {
+        let operator_subset_hash = get_hashset_from_values(subset_op);
+        // Means we also have superset_of
+        if let Some(superset_op) = policy.get("superset_of") {
+            let superset_hash = get_hashset_from_values(superset_op);
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.5-8.4.1
+            if !superset_hash.is_subset(&operator_subset_hash) {
+                // error
+                bail!(
+                    r"Subordinate policy merge error: The values of subset_of must be a superset of the values of superset_of"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Returns an ordered array by merging items from Trust Anchor and Intermediate Authority.
@@ -725,6 +736,59 @@ pub fn resolve_metadata_policy(
     policy: &Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Value> {
+    if !policy.contains_key(SCOPE) && !metadata.contains_key(SCOPE) {
+        return resolve_parameters(policy, metadata);
+    }
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.8-3
+    // scope is a string of space-separated values, which the operators regard and process as a
+    // string array. The resulting scope is a space-separated string again.
+    let mut policy = policy.clone();
+    if let Some(Value::Object(operators)) = policy.get_mut(SCOPE) {
+        for operator in ["value", "default"] {
+            if let Some(operator_value) = operators.get_mut(operator) {
+                scope_to_array(operator_value);
+            }
+        }
+    }
+    let mut metadata = metadata.clone();
+    if let Some(scope) = metadata.get_mut(SCOPE) {
+        scope_to_array(scope);
+    }
+    let mut resolved = resolve_parameters(&policy, &metadata)?;
+    if let Some(scope) = resolved.get_mut(SCOPE) {
+        scope_to_string(scope);
+    }
+    Ok(resolved)
+}
+
+/// The `scope` metadata parameter, a string of space-separated values.
+const SCOPE: &str = "scope";
+
+/// Turns a space-separated `scope` string into an array of its values.
+fn scope_to_array(scope: &mut Value) {
+    if let Value::String(values) = scope {
+        *scope = json!(
+            values
+                .split(' ')
+                .filter(|v| !v.is_empty())
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+/// Turns an array of `scope` values back into a space-separated string.
+fn scope_to_string(scope: &mut Value) {
+    if let Some(values) = scope
+        .as_array()
+        .and_then(|values| values.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+    {
+        *scope = json!(values.join(" "));
+    }
+}
+
+/// Resolves the metadata parameters against their policies, as
+/// [`resolve_metadata_policy`] does once `scope` is an array.
+fn resolve_parameters(policy: &Map<String, Value>, metadata: &Map<String, Value>) -> Result<Value> {
     debug!("--IN RESOLVE FUNCTION--\n");
     debug!("\npolicy: {:?}", policy);
     debug!("\nmetadata {:?}\n", metadata);
@@ -759,12 +823,20 @@ pub fn resolve_metadata_policy(
             debug!("\nWe have ADD in POLICY: {:?}\n", policy_value_data);
             let mut iresult = Vec::new();
             // we have both add and metadata value
-            let mvalue = metadata_value.as_array().unwrap();
+            // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3
+            // A metadata parameter or operator JSON value type that is not supported is a policy
+            // error.
+            let Some(mvalue) = metadata_value.as_array() else {
+                bail!("add needs an array metadata value for {metadata_name}");
+            };
             for v in mvalue.iter() {
                 iresult.push(v);
             }
             debug!("Copied all metadata in iresult: {:?}\n", iresult);
-            for v in policy_value_data.as_array().unwrap().iter() {
+            let Some(add_values) = policy_value_data.as_array() else {
+                bail!("add needs an array operator value for {metadata_name}");
+            };
+            for v in add_values.iter() {
                 // Don't add if we already added
                 if !iresult.contains(&v) {
                     iresult.push(v);

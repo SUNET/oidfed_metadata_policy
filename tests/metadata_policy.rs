@@ -2,7 +2,7 @@ use core::error::Error;
 use env_logger;
 use std::{fs::File, io::BufReader};
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 const TEST_FILE: &str = "data/metadata-policy-test-vectors-2025-02-13.json";
 const TEST_DATA_SOURCE: &str =
@@ -105,4 +105,124 @@ fn merge_test_case_policies(
             Ok(Some(merged))
         }
     }
+}
+
+#[test]
+fn test_merge_superset_of_is_union() {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.6
+    // "The result of merging the values of two superset_of operators is the union of the
+    // operator values."
+    let ta = json!({"response_types": {"superset_of": ["code"]}});
+    let int = json!({"response_types": {"superset_of": ["id_token"]}});
+    let merged = oidfed_metadata_policy::merge_one_type_policy(&ta, &int).unwrap();
+    assert_eq!(
+        merged,
+        *json!({"response_types": {"superset_of": ["code", "id_token"]}})
+            .as_object()
+            .unwrap()
+    );
+
+    let metadata = json!({"response_types": ["code", "id_token", "token"]});
+    let resolved =
+        oidfed_metadata_policy::resolve_metadata_policy(&merged, metadata.as_object().unwrap())
+            .unwrap();
+    assert!(oidfed_metadata_policy::check_equal(&resolved, &metadata));
+}
+
+#[test]
+fn test_merge_refuses_one_of_with_add_or_subset_of() {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.4
+    // one_of may be combined with value, default and essential only, and "Combinations that are
+    // not allowed MUST produce a policy error" (section 6.1.3), for individual as well as merged
+    // metadata parameter policies.
+    for operator in ["add", "subset_of", "superset_of"] {
+        let ta = json!({"contacts": {operator: ["a"], "one_of": ["a"]}});
+        assert!(
+            oidfed_metadata_policy::merge_one_type_policy(&ta, &json!({})).is_err(),
+            "one_of with {operator} in one policy"
+        );
+
+        let ta = json!({"contacts": {operator: ["a"]}});
+        let int = json!({"contacts": {"one_of": ["a"]}});
+        assert!(
+            oidfed_metadata_policy::merge_one_type_policy(&ta, &int).is_err(),
+            "one_of with {operator} after the merge"
+        );
+    }
+
+    // one_of with default and essential is allowed.
+    let ta = json!({"contacts": {"one_of": ["a"], "default": "a", "essential": true}});
+    oidfed_metadata_policy::merge_one_type_policy(&ta, &json!({})).unwrap();
+}
+
+/// The values of a space-separated `scope` string, as a set.
+fn scope_values(resolved: &Value) -> std::collections::HashSet<&str> {
+    resolved["scope"]
+        .as_str()
+        .expect("scope should be a string")
+        .split(' ')
+        .collect()
+}
+
+#[test]
+fn test_resolve_scope_as_string_array() {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3.1.8
+    // scope "is to be regarded and processed as a string array by policy operators", and "The
+    // resulting scope metadata parameter is a space-separated string of individual scope values".
+    let resolve = |policy: Value, metadata: Value| {
+        oidfed_metadata_policy::resolve_metadata_policy(
+            policy.as_object().unwrap(),
+            metadata.as_object().unwrap(),
+        )
+        .unwrap()
+    };
+
+    // subset_of
+    let resolved = resolve(
+        json!({"scope": {"subset_of": ["openid", "email"]}}),
+        json!({"scope": "openid profile email"}),
+    );
+    assert_eq!(scope_values(&resolved), ["openid", "email"].into());
+
+    // add, with a scope in the metadata
+    let resolved = resolve(
+        json!({"scope": {"add": ["email"]}}),
+        json!({"scope": "openid"}),
+    );
+    assert_eq!(scope_values(&resolved), ["openid", "email"].into());
+
+    // add and default, with no scope in the metadata
+    let resolved = resolve(
+        json!({"scope": {"default": "openid", "add": ["email"]}}),
+        json!({}),
+    );
+    assert_eq!(resolved, json!({"scope": "email"}));
+
+    // superset_of
+    let resolved = resolve(
+        json!({"scope": {"superset_of": ["openid"]}}),
+        json!({"scope": "openid email"}),
+    );
+    assert_eq!(scope_values(&resolved), ["openid", "email"].into());
+    assert!(
+        oidfed_metadata_policy::resolve_metadata_policy(
+            json!({"scope": {"superset_of": ["openid"]}})
+                .as_object()
+                .unwrap(),
+            json!({"scope": "email"}).as_object().unwrap(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn test_resolve_add_on_a_string_is_an_error() {
+    // https://openid.net/specs/openid-federation-1_0.html#section-6.1.3
+    // "When the metadata parameter has a JSON value type that is not supported, the operator MUST
+    // produce a policy error."
+    let result = oidfed_metadata_policy::resolve_metadata_policy(
+        json!({"client_name": {"add": ["b"]}}).as_object().unwrap(),
+        json!({"client_name": "a"}).as_object().unwrap(),
+    );
+    assert!(result.is_err());
 }
