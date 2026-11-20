@@ -45,3 +45,32 @@ A resolver should discard a candidate path on error and try any remaining
 paths before returning a failure. Applications using the two-policy merge
 helper directly must also check critical declarations from the enclosing
 statements. See [the 0.9.0 release notes](CHANGELOG.md).
+
+## Preparing metadata and policy documents
+
+Each role in a leaf or superior's `metadata` claim must contain a JSON
+object. An empty role object is valid. Each parameter directly inside a role
+must have a non-null value, even if an override would replace it or if the
+role belongs to an intermediate. A parameter can contain nested JSON such
+as `{"settings": {"fallback": null}}`. To remove a parameter through policy,
+use the `value` operator with a null operand.
+
+For both document APIs, omit `metadata_policy` when no policy applies.
+When upgrading to 0.9.0, callers that passed `"metadata_policy": {}` to
+`apply_policy_document_on_metadata` must remove that member. A document
+containing only `metadata` can still supply overrides.
+
+`merge_policies` omits parameters and roles whose operators were all
+ignored. When reissuing a merged policy, include the map only if it contains
+at least one role. An empty result means the claim should be omitted.
+
+## Operator edge cases
+
+- Applying `add` deduplicates the existing array as well as the additions.
+  For example, applying `{"add": []}` to `["a", "a"]` yields `["a"]`.
+  This also applies when all proposed additions are already present.
+- Numeric comparisons use `serde_json::Value` equality. For example,
+  `{"one_of": [1]}` rejects the JSON number `1.0`. The same distinction
+  applies when merging `value` or `default` operands and when performing
+  array unions, intersections, or membership checks. Use a consistent
+  number representation across policies and metadata.

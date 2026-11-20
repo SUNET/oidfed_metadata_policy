@@ -191,6 +191,67 @@ fn signed_policy_requires_at_least_one_member_at_each_level() {
     for policy in [json!({}), json!({"rp":{}}), json!({"rp":{"name":{}}})] {
         let doc = json!({"metadata_policy":policy});
         assert!(resolve_chain_metadata(&Map::new(), &[statement(&doc)]).is_err());
+        assert!(apply_policy_document_on_metadata(doc.as_object().unwrap(), &Map::new()).is_err());
     }
     assert!(resolve_chain_metadata(&Map::new(), &[statement(&json!({}))]).is_ok());
+}
+
+#[test]
+fn metadata_errors_are_detected_before_overrides_or_policy() {
+    let leaf = json!({"rp": {"name": null}});
+    let overrides = json!({"metadata":{"rp":{"name":"Campus"}}});
+    let removal = json!({"metadata_policy":{"rp":{"name":{"value":null}}}});
+    let leaf = leaf.as_object().unwrap();
+    assert!(resolve_chain_metadata(leaf, &[]).is_err());
+    assert!(resolve_chain_metadata(leaf, &[statement(&overrides)]).is_err());
+    assert!(apply_policy_document_on_metadata(removal.as_object().unwrap(), leaf).is_err());
+    let fields = leaf["rp"].as_object().unwrap();
+    assert!(resolve_metadata_policy(&Map::new(), fields).is_err());
+    assert!(apply_policy_on_metadata(Map::new(), fields).is_err());
+
+    let valid = json!({"rp": {}});
+    for claim in [
+        json!(null),
+        json!({"rp":{"name":null}}),
+        json!({"unused":false}),
+        json!({"unused":{"name":null}}),
+    ] {
+        let doc = json!({"metadata":claim});
+        let leaf = valid.as_object().unwrap();
+        assert!(resolve_chain_metadata(leaf, &[statement(&doc)]).is_err());
+        assert!(resolve_chain_metadata(leaf, &[statement(&doc), statement(&overrides)]).is_err());
+    }
+}
+
+#[test]
+fn nested_nulls_empty_roles_and_explicit_parameter_removal_are_valid() {
+    let leaf = json!({"rp":{"name":"Campus","settings":{"fallback":null}},"custom":{}});
+    let doc = json!({"metadata_policy":{"rp":{"name":{"value":null}}},
+                     "metadata":{"rp":{"list":[null]},"unused":{}}});
+    let result =
+        apply_policy_document_on_metadata(doc.as_object().unwrap(), leaf.as_object().unwrap())
+            .unwrap();
+    assert_eq!(
+        Value::Object(result),
+        json!({"rp":{"settings":{"fallback":null},"list":[null]},"custom":{}})
+    );
+}
+
+#[test]
+fn merged_policy_can_be_reissued_after_ignoring_optional_extensions() {
+    let optional = json!({"rp":{"custom":{"extension":true},"name":{"extension":"future"}},"unused":{"p":{"extension":1}}});
+    assert!(merge_policies(&optional, &optional).unwrap().is_empty());
+    let known = json!({"rp":{"name":{"value":"Campus","another_extension":1}}});
+    for (higher, lower) in [(&optional, &known), (&known, &optional)] {
+        let merged = merge_policies(higher, lower).unwrap();
+        let doc = json!({"metadata_policy":merged});
+        assert_eq!(
+            doc["metadata_policy"],
+            json!({"rp":{"name":{"value":"Campus"}}})
+        );
+        let leaf = json!({"rp":{}});
+        let resolved =
+            resolve_chain_metadata(leaf.as_object().unwrap(), &[statement(&doc)]).unwrap();
+        assert_eq!(resolved["rp"]["name"], "Campus");
+    }
 }

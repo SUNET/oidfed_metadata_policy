@@ -57,7 +57,9 @@ use std::collections::HashSet;
 /// # Returns
 ///
 /// Returns `Ok(Map<String, Value>)` containing the merged policy, or an `Err` if
-/// the policies cannot be merged due to conflicts.
+/// the policies cannot be merged due to conflicts. Parameters and roles with
+/// no supported operators are omitted. If the map is empty, omit the
+/// `metadata_policy` claim when issuing a statement (§6.1.2).
 ///
 /// # Example
 ///
@@ -94,7 +96,9 @@ pub fn merge_policies(
             let previous = merged.get(role).unwrap_or(&empty);
             let fields = merge_one_type_policy(previous, fields)
                 .with_context(|| format!("invalid policy for {role}"))?;
-            merged.insert(role.clone(), Value::Object(fields));
+            if !fields.is_empty() {
+                merged.insert(role.clone(), Value::Object(fields));
+            }
         }
     }
     Ok(merged)
@@ -154,6 +158,11 @@ pub fn merge_one_type_policy(
         for (field, operators) in object(policy, "entity type policy")? {
             let rules = object(operators, "parameter policy")?;
             validate_operators(rules).with_context(|| format!("invalid policy for {field}"))?;
+            // Ignoring optional extensions must not create an empty parameter
+            // policy. Each emitted parameter needs at least one operator (§6.1.2).
+            if !rules.keys().any(|name| standard_operator(name)) {
+                continue;
+            }
             let existing = merged.entry(field.clone()).or_insert_with(|| json!({}));
             let result = existing
                 .as_object_mut()
@@ -586,7 +595,28 @@ pub fn resolve_metadata_policy(
     policy: &Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Value> {
+    validate_metadata_parameters(metadata)?;
     resolve_role_metadata(policy, metadata, false)
+}
+
+// Section 5 prohibits null at the parameter boundary. Objects and arrays
+// inside a parameter follow the schema of that parameter's entity type.
+fn validate_metadata_parameters(parameters: &Map<String, Value>) -> Result<()> {
+    if let Some((name, _)) = parameters.iter().find(|(_, value)| value.is_null()) {
+        bail!("metadata parameter {name} cannot be null");
+    }
+    Ok(())
+}
+
+fn validate_metadata(metadata: &Map<String, Value>) -> Result<()> {
+    for (role, values) in metadata {
+        let parameters = values
+            .as_object()
+            .ok_or_else(|| anyhow!("metadata for {role} must be an object"))?;
+        validate_metadata_parameters(parameters)
+            .with_context(|| format!("invalid metadata for {role}"))?;
+    }
+    Ok(())
 }
 
 // RFC 6749 scope-token excludes spaces, quotes, backslashes and controls.
@@ -768,7 +798,7 @@ pub fn check_equal(v1: &Value, v2: &Value) -> bool {
 /// # Arguments
 ///
 /// * `full_policy` - The complete policy document containing:
-///   - `metadata_policy`: Policy operators for each entity type
+///   - `metadata_policy`: Policy operators for each entity type (omit when there is no policy)
 ///   - `metadata_policy_crit`: Critical extension names (optional)
 ///   - `metadata`: Forced metadata values to override (optional)
 /// * `metadata` - The original entity metadata organized by entity type
@@ -824,7 +854,7 @@ pub fn check_equal(v1: &Value, v2: &Value) -> bool {
 ///
 /// See the integration tests in [`tests/apply_policy.rs`] for more comprehensive examples:
 ///
-/// - `test_apply_blank_policy` - Applying empty policy with forced metadata
+/// - `test_apply_without_policy` - Applying forced metadata with no policy claim
 /// - `test_apply_policy_superset_failure` - Error handling when `superset_of` constraint fails
 /// - `test_apply_policy_subset_of_without_metadata` - Using `subset_of` without forced metadata
 /// - `test_apply_policy_subset_of_with_metadata` - Combining `subset_of` with forced metadata
@@ -834,15 +864,10 @@ pub fn apply_policy_document_on_metadata(
     full_policy: &Map<String, Value>,
     metadata: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
-    // This convenience API historically accepts an explicit empty policy as
-    // a no-op. Signed statements use the strict chain API directly.
-    let policy = full_policy
-        .get("metadata_policy")
-        .filter(|p| !p.as_object().is_some_and(Map::is_empty));
     resolve_chain_metadata(
         metadata,
         &[SubordinatePolicy {
-            metadata_policy: policy,
+            metadata_policy: full_policy.get("metadata_policy"),
             metadata_policy_crit: full_policy.get("metadata_policy_crit"),
             metadata: full_policy.get("metadata"),
         }],
@@ -909,9 +934,16 @@ pub fn resolve_chain_metadata(
     metadata: &Map<String, Value>,
     statements: &[SubordinatePolicy<'_>],
 ) -> Result<Map<String, Value>> {
+    validate_metadata(metadata).context("invalid leaf metadata")?;
     for statement in statements {
         if let Some(critical) = statement.metadata_policy_crit {
             validate_metadata_policy_crit(critical)?;
+        }
+        // Validate every claim before selecting overrides. A higher superior's
+        // metadata can be inapplicable to this leaf and still be malformed.
+        if let Some(claim) = statement.metadata {
+            validate_metadata(object(claim, "superior metadata")?)
+                .context("invalid superior metadata")?;
         }
     }
     let mut merged = Map::new();
