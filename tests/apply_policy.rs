@@ -12,7 +12,7 @@ fn check_equal_values(v1: Value, v2: Value) -> Result<()> {
 }
 
 #[test]
-fn test_apply_blank_policy() {
+fn test_apply_without_policy() {
     env_logger::init();
     let metadata = json!( {
         "federation_entity": {
@@ -32,12 +32,12 @@ fn test_apply_blank_policy() {
     });
     let metadata_obj = metadata.as_object().unwrap();
 
-    let full_policy = json!( {"metadata_policy": {}, "metadata": {
+    let full_policy = json!( {"metadata": {
         "openid_relying_party": {
             "application_type": "mutant",
             "system": ["py", "rust"]
         },
-        "extra_field": "extra_value"
+        "other_role": {"name": "unused"}
     }});
 
     let fp = full_policy.as_object().unwrap();
@@ -100,7 +100,7 @@ fn test_apply_policy_superset_failure() {
             "application_type": "mutant",
             "system": ["py", "rust"]
         },
-        "extra_field": "extra_value"
+        "other_role": {"name": "unused"}
     }});
 
     let fp = full_policy.as_object().unwrap();
@@ -204,7 +204,7 @@ fn test_apply_policy_subset_of_with_metadata() {
             "application_type": "mutant",
             "system": ["py", "rust"]
         },
-        "extra_field": "extra_value"
+        "other_role": {"name": "unused"}
     }});
 
     let fp = full_policy.as_object().unwrap();
