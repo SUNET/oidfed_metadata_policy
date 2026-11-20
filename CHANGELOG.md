@@ -13,5 +13,6 @@
   Evaluate `essential` as a boolean and report metadata type errors to the
   caller.
 - Apply OAuth client `scope` policies to individual scope tokens and
-  serialize the resolved set as a space-delimited string. Other roles can
-  define their own `scope` parameter.
+  serialize the resolved set as a space-delimited string. Resolution fails
+  if a present client scope resolves to zero tokens. An absent optional
+  scope may stay absent. Other roles can define their own `scope` parameter.

@@ -120,6 +120,44 @@ fn operator_inputs_and_results_have_supported_json_types() {
 }
 
 #[test]
+fn standalone_empty_one_of_allows_only_an_absent_parameter() {
+    let rule = json!({"metadata_policy": {"rp": {"alg": {"one_of": []}}}});
+    let optional_absent = json!({"rp": {}});
+    let absent = optional_absent.as_object().unwrap();
+    assert_eq!(
+        resolve_chain_metadata(absent, &[statement(&rule)]).unwrap(),
+        *absent
+    );
+
+    let present = json!({"rp": {"alg": "ES256"}});
+    assert!(resolve_chain_metadata(present.as_object().unwrap(), &[statement(&rule)]).is_err());
+
+    // Two one_of operators with no common value invalidate the chain during
+    // the merge, even when the leaf omits the optional parameter (§6.1.3.1.4).
+    let other = json!({"metadata_policy": {"rp": {"alg": {"one_of": ["ES256"]}}}});
+    assert!(resolve_chain_metadata(absent, &[statement(&rule), statement(&other)]).is_err());
+}
+
+#[test]
+fn empty_resolved_client_scope_is_an_error_even_when_optional() {
+    let present = json!({"oauth_client": {"scope": "openid"}});
+    let absent = json!({"oauth_client": {}});
+    for essential in [false, true] {
+        let doc = json!({"metadata_policy": {"oauth_client": {
+            "scope": {"subset_of": ["email"], "essential": essential}
+        }}});
+        let resolve =
+            |leaf: &Value| resolve_chain_metadata(leaf.as_object().unwrap(), &[statement(&doc)]);
+        assert!(resolve(&present).is_err());
+        if essential {
+            assert!(resolve(&absent).is_err());
+        } else {
+            assert_eq!(resolve(&absent).unwrap(), *absent.as_object().unwrap());
+        }
+    }
+}
+
+#[test]
 fn generic_helpers_require_an_array_for_scope_subset_of() {
     let policy = json!({"scope": {"subset_of": ["email"]}});
     let policy = policy.as_object().unwrap();

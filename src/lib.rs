@@ -669,6 +669,9 @@ fn resolve_role_metadata(
                             .context("invalid scope token")
                     })
                     .collect::<Result<Vec<_>>>()?;
+                // RFC 6749 §3.3 requires at least one token. Dropping a present
+                // scope here could grant registration defaults (RFC 7591 §2).
+                ensure!(!tokens.is_empty(), "client scope resolved to zero tokens");
                 *value = Value::String(tokens.join(" "));
             }
         }
