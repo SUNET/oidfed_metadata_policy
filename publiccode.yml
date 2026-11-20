@@ -19,7 +19,7 @@ softwareType: "library"
 description:
   en:
     shortDescription: >
-        Implementation of metadata policy rules of OpenID Federation 1.0.
+        Implementation of metadata policy rules of OpenID Federation 1.1.
 
     longDescription: >
         A rust library which provides metadata policy merge and resolver functionality.
